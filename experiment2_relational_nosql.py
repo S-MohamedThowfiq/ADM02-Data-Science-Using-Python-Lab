@@ -1,0 +1,181 @@
+
+
+import sqlite3
+import json
+import pandas as pd
+
+conn = sqlite3.connect("hospital.db")
+cur = conn.cursor()
+cur.execute("PRAGMA foreign_keys = ON")
+
+# 1. Create relational tables
+cur.executescript("""
+DROP TABLE IF EXISTS visits;
+DROP TABLE IF EXISTS patients;
+DROP TABLE IF EXISTS doctors;
+
+CREATE TABLE doctors (
+    doctor_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    department TEXT NOT NULL
+);
+
+CREATE TABLE patients (
+    patient_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    age INTEGER,
+    gender TEXT,
+    city TEXT
+);
+
+CREATE TABLE visits (
+    visit_id INTEGER PRIMARY KEY,
+    patient_id INTEGER REFERENCES patients(patient_id),
+    doctor_id INTEGER REFERENCES doctors(doctor_id),
+    visit_date TEXT,
+    fee REAL
+);
+""")
+
+# 2. Insert sample records
+cur.executemany("INSERT INTO doctors VALUES (?, ?, ?)", [
+    (1, "Dr. Ramesh", "Cardiology"),
+    (2, "Dr. Kavitha", "Orthopaedics"),
+    (3, "Dr. Imran", "General Medicine"),
+])
+
+cur.executemany("INSERT INTO patients VALUES (?, ?, ?, ?, ?)", [
+    (1, "Ajay", 45, "M", "Chennai"),
+    (2, "Bhavana", 32, "F", "Madurai"),
+    (3, "Charles", 67, "M", "Chennai"),
+    (4, "Deepa", 29, "F", "Coimbatore"),
+    (5, "Elango", 54, "M", "Madurai"),
+    (6, "Fathima", 38, "F", "Chennai"),
+])
+
+cur.executemany("INSERT INTO visits VALUES (?, ?, ?, ?, ?)", [
+    (1, 1, 1, "2026-01-05", 800),
+    (2, 2, 2, "2026-01-06", 600),
+    (3, 3, 1, "2026-01-08", 800),
+    (4, 4, 3, "2026-01-09", 300),
+    (5, 5, 1, "2026-01-12", 800),
+    (6, 1, 3, "2026-01-15", 300),
+    (7, 6, 2, "2026-01-18", 600),
+    (8, 3, 3, "2026-01-20", 300),
+    (9, 2, 2, "2026-01-22", 600),
+    (10, 5, 3, "2026-01-25", 300),
+])
+conn.commit()
+
+def run_query(title, sql):
+    print(f"\n--- {title} ---")
+    result = pd.read_sql_query(sql, conn)
+    print(result.to_string(index=False))
+
+print("HOSPITAL RECORDS: RELATIONAL DATABASE AND NOSQL")
+print("=" * 55)
+
+# SELECT
+run_query(
+    "Q1. Patients older than 40",
+    """SELECT name, age, city FROM patients
+       WHERE age > 40 ORDER BY age DESC"""
+)
+
+# JOIN
+run_query(
+    "Q2. Visits with patient and doctor details",
+    """SELECT v.visit_id, p.name AS patient, d.name AS doctor,
+              d.department, v.fee
+       FROM visits v
+       JOIN patients p ON v.patient_id = p.patient_id
+       JOIN doctors d ON v.doctor_id = d.doctor_id
+       ORDER BY v.visit_id"""
+)
+
+# GROUP BY
+run_query(
+    "Q3. Revenue and visit count per department",
+    """SELECT d.department, COUNT(*) AS visits, SUM(v.fee) AS revenue
+       FROM visits v JOIN doctors d ON v.doctor_id = d.doctor_id
+       GROUP BY d.department ORDER BY revenue DESC"""
+)
+
+# HAVING
+run_query(
+    "Q4. Patients with more than one visit",
+    """SELECT p.name, COUNT(*) AS visits
+       FROM visits v JOIN patients p ON v.patient_id = p.patient_id
+       GROUP BY p.patient_id, p.name HAVING COUNT(*) > 1"""
+)
+
+# 3. UPDATE and DELETE operations
+cur.execute(
+    "UPDATE doctors SET department = ? WHERE doctor_id = 3",
+    ("Internal Medicine",)
+)
+cur.execute("DELETE FROM visits WHERE visit_id = 10")
+conn.commit()
+
+print("\nUpdated doctor 3 and deleted visit 10.")
+run_query("Q5. Doctors after UPDATE", "SELECT * FROM doctors")
+run_query("Q6. Visits after DELETE", "SELECT * FROM visits")
+
+# 4. Load SQL query results into pandas for analysis
+df = pd.read_sql_query(
+    """SELECT p.city, p.gender, v.fee
+       FROM visits v JOIN patients p ON v.patient_id = p.patient_id""",
+    conn
+)
+print("\nCITY-WISE VISIT FEE ANALYSIS")
+print(df.groupby("city")["fee"].agg(["count", "mean"]).round(2))
+
+# 5. Convert relational records to patient-centred JSON documents
+rows = pd.read_sql_query(
+    """SELECT p.patient_id, p.name, p.age, p.city,
+              d.department, v.visit_date, v.fee
+       FROM patients p
+       JOIN visits v ON p.patient_id = v.patient_id
+       JOIN doctors d ON v.doctor_id = d.doctor_id
+       ORDER BY p.patient_id, v.visit_date""",
+    conn
+)
+
+collection = []
+for patient_id, group in rows.groupby("patient_id"):
+    first = group.iloc[0]
+    document = {
+        "_id": int(patient_id),
+        "name": first["name"],
+        "age": int(first["age"]),
+        "city": first["city"],
+        "visits": [
+            {
+                "department": row.department,
+                "date": row.visit_date,
+                "fee": float(row.fee)
+            }
+            for row in group.itertuples()
+        ]
+    }
+    collection.append(document)
+
+with open("patients_nosql.json", "w", encoding="utf-8") as f:
+    json.dump(collection, f, indent=2)
+
+print("\nNOSQL DOCUMENT EXAMPLE")
+print(json.dumps(collection[0], indent=2))
+
+# MongoDB-style find operation using a Python filter
+result = [
+    doc for doc in collection
+    if doc["city"] == "Chennai"
+    and any(v["department"] == "Cardiology" for v in doc["visits"])
+]
+
+print("\nPatients in Chennai with a Cardiology visit:")
+for doc in result:
+    print(doc["_id"], doc["name"], "- visits:", len(doc["visits"]))
+
+conn.close()
+print("\nExperiment 2 completed. Database: hospital.db; JSON: patients_nosql.json")

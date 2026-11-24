@@ -1,0 +1,92 @@
+
+import csv
+import json
+import os
+import pandas as pd
+
+os.makedirs("data", exist_ok=True)
+
+# 1. Create sample source files
+pos_rows = [
+    ["order_id", "customer", "product", "qty", "unit_price", "branch"],
+    [101, "Anitha", "Laptop", 1, 54000, "Chennai"],
+    [102, "Rahul", "Mouse", 3, 450, "Chennai"],
+    [103, "Priya", "Keyboard", 2, 1200, "Chennai"],
+    [104, "Karthik", "Monitor", 1, 9500, "Chennai"],
+]
+with open("data/pos_orders.csv", "w", newline="", encoding="utf-8") as f:
+    csv.writer(f).writerows(pos_rows)
+
+web_orders = [
+    {"order_id": 201, "customer": "Divya", "product": "Laptop",
+     "qty": 2, "unit_price": 52500, "branch": "Online"},
+    {"order_id": 202, "customer": "Arjun", "product": "Headset",
+     "qty": 1, "unit_price": 2300, "branch": "Online"},
+    {"order_id": 203, "customer": "Meena", "product": "Mouse",
+     "qty": 5, "unit_price": 430, "branch": "Online"},
+]
+with open("data/web_orders.json", "w", encoding="utf-8") as f:
+    json.dump(web_orders, f, indent=2)
+
+log_lines = [
+    "301|Suresh|Monitor|2|9300|Mobile",
+    "302|Lakshmi|Keyboard|1|1150|Mobile",
+    "303|Vignesh|Laptop|1|55000|Mobile",
+]
+with open("data/mobile_orders.txt", "w", encoding="utf-8") as f:
+    f.write("\n".join(log_lines))
+
+print("RETAIL ORDER DATA: COLLECTION, STORAGE AND RETRIEVAL")
+print("=" * 58)
+
+# 2. Read the three files
+df_pos = pd.read_csv("data/pos_orders.csv")
+print("\n[1] CSV source")
+print(df_pos.to_string(index=False))
+
+with open("data/web_orders.json", encoding="utf-8") as f:
+    df_web = pd.DataFrame(json.load(f))
+print("\n[2] JSON source")
+print(df_web.to_string(index=False))
+
+columns = ["order_id", "customer", "product", "qty", "unit_price", "branch"]
+df_mobile = pd.read_csv(
+    "data/mobile_orders.txt", sep="|", header=None, names=columns
+)
+print("\n[3] TXT source")
+print(df_mobile.to_string(index=False))
+
+# 3. Integrate the datasets and calculate order amount
+orders = pd.concat([df_pos, df_web, df_mobile], ignore_index=True)
+orders["amount"] = orders["qty"] * orders["unit_price"]
+
+print("\n[4] INTEGRATED DATASET")
+print(orders.to_string(index=False))
+print("\nDataset shape:", orders.shape)
+print("\nData types:\n", orders.dtypes)
+
+# 4. Store the integrated dataset in CSV, JSON and Excel formats
+orders.to_csv("data/all_orders.csv", index=False)
+orders.to_json("data/all_orders.json", orient="records", indent=2)
+orders.to_excel("data/all_orders.xlsx", index=False)
+
+print("\n[5] STORED FILE SIZES")
+for filename in ["all_orders.csv", "all_orders.json", "all_orders.xlsx"]:
+    path = os.path.join("data", filename)
+    print(f"{filename:20s} {os.path.getsize(path):>8} bytes")
+
+# 5. Retrieve stored data and perform business queries
+retrieved = pd.read_excel("data/all_orders.xlsx")
+print("\nRetrieved rows:", len(retrieved))
+
+print("\nREVENUE BY BRANCH")
+print(retrieved.groupby("branch")["amount"].sum()
+      .sort_values(ascending=False).to_string())
+
+print("\nHIGH-VALUE ORDERS (amount > 10000)")
+print(retrieved.loc[
+    retrieved["amount"] > 10000,
+    ["order_id", "customer", "product", "amount"]
+].to_string(index=False))
+
+print("\nExperiment 1 completed. Files are saved in the 'data' folder.")
