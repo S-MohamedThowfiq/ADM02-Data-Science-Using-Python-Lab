@@ -1,6 +1,6 @@
+#Date:21.11.26
 # EXPERIMENT 9 - Python Data Types, Variables, Expressions, Objects and Functions
 # AIM: Implement a patient health indicator system using Python basics.
-
 # ---------- Variables and basic data types ----------
 hospital = "City Care Clinic"       # str
 patients_today = 4                   # int
